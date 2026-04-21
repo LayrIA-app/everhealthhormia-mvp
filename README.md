@@ -1,75 +1,191 @@
-# EverHealthHormIA · MVP Fase 2
+# EverHealthHormIA · MVP (Fase 2 → Fase 3)
 
-Ecosistema IA Adaptativa de Telemedicina Hormonal · versión MVP publicada en Vercel.
+Ecosistema IA Adaptativa de Telemedicina Hormonal · publicado en Vercel.
 
 ## Estado actual
 
-**Fase 2 · MVP React en producción · sin backend activado.**
+**Fase 3 activada · backend conectable.**
 
-- Demo completa de Fase 1 como fuente de verdad en `public/demo.html`.
-- Shell React (Vite) embebe la demo a pantalla completa en `src/App.jsx`.
-- Estructura preparada para extraer pantallas a componentes React e ir conectando Supabase / Claude API / Resend en Fase 3.
+Login real (Supabase), IA proactiva (Claude API vía proxy serverless), emails reales (Resend vía proxy), PDFs client-side (jsPDF). La demo completa de Fase 1 sigue siendo la fuente única de verdad visual en `public/demo.html`; el shell React autentica y auto-navega al rol correcto en el iframe.
 
-## Qué NO va en Fase 2 (según SISTEMA_FRANQUICIA.md)
+Sin variables de entorno configuradas, la demo arranca en **modo demo local** (perfiles simulados, sin auth real, sin Claude, sin Resend). Configurando las env vars (abajo) se activa el backend real.
 
-- Supabase ni ninguna BBDD
-- Claude API ni IA real conectada
-- Resend ni emails reales
-- Stripe ni pagos
+## Stack
+
+- **Vite 5** + **React 18** (shell)
+- **Supabase** · auth + Postgres + RLS (`@supabase/supabase-js`)
+- **Anthropic SDK** (Claude Sonnet 4.6 por defecto) · `@anthropic-ai/sdk`
+- **Resend** · email transaccional · `resend`
+- **jsPDF** · informes clínicos, derivaciones, facturas
+- **Vercel** · hosting + serverless functions `/api/*` (Node 22)
 
 ## Estructura
 
 ```
 everhealthhormia-mvp/
-├── index.html              # Vite root entry (monta React)
+├── api/                      # Vercel Serverless Functions (Node 22)
+│   ├── claude.js             # Proxy Anthropic API (cache prompt habilitado)
+│   └── resend.js             # Proxy Resend (send email)
 ├── public/
-│   └── demo.html           # Demo completa Fase 1 (fuente única)
+│   └── demo.html             # Demo completa Fase 1 (fuente única visual)
 ├── src/
-│   ├── main.jsx            # React entry
-│   ├── App.jsx             # Shell que embebe la demo
-│   └── index.css           # Loader + frame CSS
-├── vite.config.js
-├── vercel.json             # Config Vercel (framework vite)
+│   ├── main.jsx              # Entry React
+│   ├── App.jsx               # Gate auth → ShellFrame con iframe
+│   ├── index.css             # Loader + frame CSS
+│   ├── auth/
+│   │   ├── AuthProvider.jsx  # Contexto auth (Supabase + fallback demo)
+│   │   └── Login.jsx         # Login real o demo según hasSupabase
+│   └── lib/
+│       ├── supabase.js       # createClient() singleton + getCurrentProfile()
+│       ├── claude.js         # askClaude({ system, messages, model, cache })
+│       ├── resend.js         # sendEmail({ to, subject, html })
+│       └── pdf.js            # buildClinicalReport({...})
+├── supabase/
+│   └── schema.sql            # Schema completo + RLS + trigger profile
+├── .env.example
+├── vercel.json
 └── package.json
 ```
 
-## Desarrollo local
+## Configuración Fase 3 · paso a paso
+
+### 1. Supabase
+
+1. Crear proyecto en [supabase.com](https://supabase.com) (Plan Free vale para MVP).
+2. Dashboard → **SQL Editor** → pega el contenido de `supabase/schema.sql` → **Run**.
+3. Verificar que las tablas aparecen en **Table Editor** (profiles, patients, protocols, …).
+4. **Authentication → Providers**: activar **Email** (ya viene por defecto).
+5. **Authentication → Users → Add user** para cada perfil real. En `User metadata`:
+   ```json
+   { "full_name": "Jose Manuel Fernandez", "role": "director" }
+   ```
+   Roles válidos: `director`, `medico`, `coordinador`, `paciente`, `laboratorio`, `inversor`.
+6. **Settings → API** → copia `URL` y `anon public key`.
+
+### 2. Claude / Anthropic
+
+1. [console.anthropic.com](https://console.anthropic.com) → **API Keys** → crear clave nueva.
+2. Añadir tarjeta en **Billing** (cobro por consumo).
+3. La clave NUNCA va al cliente: vive solo en Vercel Server env vars.
+
+Modelo por defecto: `claude-sonnet-4-6`. Sobrescribir pasando `model` a `askClaude()`.
+Prompt caching activado automáticamente para system prompts > 1KB.
+
+### 3. Resend
+
+1. [resend.com](https://resend.com) → **API Keys** → crear clave.
+2. **Domains → Add domain** · verificar tu dominio (SPF + DKIM + opcionalmente DMARC).
+3. Mientras tanto, envíos en sandbox con `noreply@resend.dev` (hasta 3000 emails/mes).
+
+### 4. Vercel env vars
+
+Dashboard → Project `everhealthhormia-mvp` → **Settings → Environment Variables**. Añade:
+
+| Nombre | Valor | Scope |
+|---|---|---|
+| `VITE_SUPABASE_URL` | URL del proyecto Supabase | Production + Preview + Development |
+| `VITE_SUPABASE_ANON_KEY` | anon public key Supabase | Production + Preview + Development |
+| `ANTHROPIC_API_KEY` | sk-ant-... | Production + Preview + Development |
+| `RESEND_API_KEY` | re_... | Production + Preview + Development |
+| `EVERHEALTH_FROM` | `EverHealthHormIA <noreply@tudominio.es>` | Production |
+
+Tras añadir variables, **Deployments → último deploy → Redeploy** (las env vars solo se leen en builds nuevos).
+
+### 5. Desarrollo local
 
 ```bash
+cp .env.example .env.local
+# Rellena .env.local con los valores reales (no se sube a git)
+
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # genera dist/
-npm run preview  # sirve dist/ en local
+npm run dev          # http://localhost:5173
 ```
+
+## API serverless
+
+### `POST /api/claude`
+
+```js
+import { askClaude } from './lib/claude.js'
+
+const res = await askClaude({
+  system: 'Eres una IA clinica que redacta drafts para médicos.',
+  messages: [{ role: 'user', content: 'Redacta draft de derivación para Luis F. con TSH 8.2' }],
+  model: 'claude-sonnet-4-6', // opcional
+})
+console.log(res.content)
+```
+
+### `POST /api/resend`
+
+```js
+import { sendEmail } from './lib/resend.js'
+
+await sendEmail({
+  to: 'paciente@ejemplo.com',
+  subject: 'Tu analítica está lista',
+  html: '<p>Resultados disponibles en tu panel.</p>',
+})
+```
+
+### jsPDF (client-side)
+
+```js
+import { buildClinicalReport } from './lib/pdf.js'
+
+const pdf = buildClinicalReport({
+  title: 'Informe clínico · Dra. Martínez',
+  patient: { name: 'Carlos M.', age: 52, protocol: 'TRT' },
+  sections: [
+    { heading: 'Analítica 21 abril', body: 'Testosterona libre 9.8 pg/mL...' },
+    { heading: 'Ajuste propuesto', body: 'Subir dosis 50mg → 75mg.' },
+  ],
+})
+pdf.save('informe-carlos-m.pdf')
+```
+
+## Flujo de auth
+
+1. `AuthProvider` comprueba sesión Supabase al montar.
+2. Sin sesión → `<Login />` (formulario real) o selector de perfil demo si `VITE_SUPABASE_URL` falta.
+3. Con sesión → `<ShellFrame />` carga `public/demo.html` en iframe.
+4. Al cargar, `ShellFrame` llama a `iframe.contentWindow.selectRole/renderLoginPanel/doLogin` con el rol del perfil, saltándose la pantalla de login del HTML.
+5. Botón **Salir** fijo abajo a la derecha · cierra sesión y vuelve al login.
+
+Mapping rol → card demo:
+
+| `profiles.role` | Card | `sub_role` posible |
+|---|---|---|
+| `director` | Director/Inversor | `director` / `inversor` |
+| `medico` | Médico/Coordinador | `medico` / `coordinador` |
+| `coordinador` | Médico/Coordinador | `coordinador` |
+| `paciente` | Paciente | — |
+| `laboratorio` | Lab/Partner | `laboratorio` / `partner` |
+| `inversor` | Director/Inversor | `inversor` |
+
+## Roadmap · extracción incremental a React (Fase 3.x)
+
+La demo HTML seguirá como iframe hasta que vayan refactorizándose pantallas a componentes React que consuman Supabase/Claude directamente. Orden recomendado:
+
+1. **Alertas IA** (bell del topbar) · tabla `alerts` + polling realtime
+2. **Protocolos adaptativos** (Médico) · `protocols` + `askClaude()` para proposer ajustes
+3. **Comunicación bandeja** · `conversations` + `messages` + drafts IA
+4. **Analítica hormonal (Gemelo)** · `analytics_samples` + `askClaude()` para explicar evolución
+5. **PDFs de informes** · `buildClinicalReport()` conectado a datos reales
+
+Cada pantalla extraída reemplaza su sección del iframe sin romper el resto.
 
 ## Deploy
 
-Vercel auto-detecta Vite. Con el repo conectado a Vercel, cada push a `main` genera un deploy automático.
+- Auto-deploy activo: cada push a `main` → Vercel redeploy en ~1 min.
+- Framework: Vite (detectado). Output: `dist`.
+- Funciones serverless: `api/*.js` corren en Node 22.
 
-Primer linking manual:
-
-1. Entrar a [vercel.com/new](https://vercel.com/new)
-2. Import del repo `LayrIA-app/everhealthhormia-mvp`
-3. Plan **Hobby** es suficiente para MVP
-4. Framework detectado: **Vite**
-5. Deploy
-
-A partir de ahí, cualquier `git push` dispara redeploy en ~1 min.
-
-## Roadmap hacia Fase 3
-
-Cuando entre un cliente real pagando:
-
-- Sustituir iframe `demo.html` por componentes React por pantalla
-- Añadir router (React Router) con URLs por perfil/sección
-- Conectar Supabase (auth + DB) vía `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`
-- Conectar Claude API vía `ANTHROPIC_API_KEY` para insights IA reales
-- Activar Resend vía `RESEND_API_KEY` para emails reales
-- Activar pagos con Stripe / Redsys si el cliente lo pide
+URL producción: **https://everhealthhormia-mvp.vercel.app**
 
 ## Referencias internas
 
-- `SISTEMA_FRANQUICIA.md` — manual maestro COAXIONIA (local)
+- `SISTEMA_FRANQUICIA.md` — manual maestro COAXIONIA
 - `COAXIONIA_Instrucciones_Responsive_Demos.docx` — responsive demo
 - Fase 1 sectorial: `LayrIA-app/demos-coaxionia` (`everhealthhormia-demo.html`)
 
