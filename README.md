@@ -30,18 +30,21 @@ everhealthhormia-mvp/
 │   └── demo.html             # Demo completa Fase 1 (fuente única visual)
 ├── src/
 │   ├── main.jsx              # Entry React
-│   ├── App.jsx               # Gate auth → ShellFrame con iframe
+│   ├── App.jsx               # Gate auth → router → ShellFrame / AdminPanel
 │   ├── index.css             # Loader + frame CSS
 │   ├── auth/
 │   │   ├── AuthProvider.jsx  # Contexto auth (Supabase + fallback demo)
 │   │   └── Login.jsx         # Login real o demo según hasSupabase
+│   ├── admin/
+│   │   └── AdminPanel.jsx    # /admin · smoke tests + log ia_actions (lazy)
 │   └── lib/
 │       ├── supabase.js       # createClient() singleton + getCurrentProfile()
 │       ├── claude.js         # askClaude({ system, messages, model, cache })
 │       ├── resend.js         # sendEmail({ to, subject, html })
 │       └── pdf.js            # buildClinicalReport({...})
 ├── supabase/
-│   └── schema.sql            # Schema completo + RLS + trigger profile
+│   ├── schema.sql            # Schema completo + RLS + trigger profile
+│   └── seed.sql              # Datos dummy matching personajes de la demo
 ├── .env.example
 ├── vercel.json
 └── package.json
@@ -53,14 +56,15 @@ everhealthhormia-mvp/
 
 1. Crear proyecto en [supabase.com](https://supabase.com) (Plan Free vale para MVP).
 2. Dashboard → **SQL Editor** → pega el contenido de `supabase/schema.sql` → **Run**.
-3. Verificar que las tablas aparecen en **Table Editor** (profiles, patients, protocols, …).
-4. **Authentication → Providers**: activar **Email** (ya viene por defecto).
-5. **Authentication → Users → Add user** para cada perfil real. En `User metadata`:
+3. (Opcional) Mismo SQL Editor → pega `supabase/seed.sql` → **Run** para poblar con los personajes de la demo (8 clínicas, 10 pacientes, protocolos activos + propuestos por IA, analíticas, kits, alertas, citas, log IA).
+4. Verificar que las tablas aparecen en **Table Editor** (profiles, patients, protocols, …).
+5. **Authentication → Providers**: activar **Email** (ya viene por defecto).
+6. **Authentication → Users → Add user** para cada perfil real. En `User metadata`:
    ```json
    { "full_name": "Jose Manuel Fernandez", "role": "director" }
    ```
    Roles válidos: `director`, `medico`, `coordinador`, `paciente`, `laboratorio`, `inversor`.
-6. **Settings → API** → copia `URL` y `anon public key`.
+7. **Settings → API** → copia `URL` y `anon public key`.
 
 ### 2. Claude / Anthropic
 
@@ -162,6 +166,25 @@ Mapping rol → card demo:
 | `paciente` | Paciente | — |
 | `laboratorio` | Lab/Partner | `laboratorio` / `partner` |
 | `inversor` | Director/Inversor | `inversor` |
+
+## Panel `/admin`
+
+Primera pantalla 100% React (lazy-loaded). Accesible con cualquier usuario autenticado en:
+
+- Local: `http://localhost:5173/admin`
+- Prod: `https://everhealthhormia-mvp.vercel.app/admin`
+- Acceso rápido: icono ⚙ Admin fijo bottom-right en el shell principal.
+
+Contenido:
+
+- **4 smoke tests** (uno por backend) que verifican cableado end-to-end:
+  - **Supabase** · consulta `profiles` · muestra email resultado
+  - **Claude API** · pregunta corta a Sonnet 4.6 · devuelve modelo usado + tokens
+  - **Resend** · envía email de prueba al email del usuario autenticado
+  - **jsPDF** · descarga `everhealth-smoke-test.pdf` con informe dummy
+- **Log últimas 10 `ia_actions`** (tabla del schema) con modelo, tokens in/out y coste USD. Útil para auditar consumo de Claude API y ver qué acciones autónomas ha ejecutado la IA.
+
+Sin env vars configurados, los smoke tests devuelven estado `Omitido` (Supabase) o `Error` (Claude/Resend) con el mensaje exacto de qué falta — útil para diagnosticar rápido.
 
 ## Roadmap · extracción incremental a React (Fase 3.x)
 

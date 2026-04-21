@@ -1,6 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, Suspense, lazy } from 'react'
 import { AuthProvider, useAuth } from './auth/AuthProvider.jsx'
 import Login from './auth/Login.jsx'
+
+// AdminPanel lazy · separa jsPDF + html2canvas del bundle principal
+const AdminPanel = lazy(() => import('./admin/AdminPanel.jsx'))
+
+// Routing mínimo sin react-router. Suficiente mientras el iframe sea el shell.
+function getRoute() {
+  if (typeof window === 'undefined') return 'shell'
+  const p = window.location.pathname
+  if (p.startsWith('/admin')) return 'admin'
+  return 'shell'
+}
 
 /**
  * EverHealthHormIA · Fase 3 shell
@@ -26,11 +37,22 @@ export default function App() {
 
 function Gate() {
   const { user, loading } = useAuth()
+  const [route, setRoute] = useState(getRoute())
 
-  useEffect(() => { document.title = 'EverHealthHormIA — MVP' }, [])
+  useEffect(() => {
+    document.title = 'EverHealthHormIA — MVP'
+    const onPop = () => setRoute(getRoute())
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
 
   if (loading) return <LoadingScreen />
   if (!user) return <Login />
+  if (route === 'admin') return (
+    <Suspense fallback={<LoadingScreen />}>
+      <AdminPanel />
+    </Suspense>
+  )
   return <ShellFrame />
 }
 
@@ -103,25 +125,28 @@ function ShellFrame() {
         }}
       />
 
-      <button
-        type="button"
-        onClick={signOut}
-        title="Cerrar sesion"
-        style={logoutBtn}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-          <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
-          <polyline points="16 17 21 12 16 7"/>
-          <line x1="21" y1="12" x2="9" y2="12"/>
-        </svg>
-        <span>Salir</span>
-      </button>
+      <div style={{ position:'fixed', bottom:14, right:14, zIndex:10000, display:'flex', gap:6 }}>
+        <a href="/admin" title="Panel admin" style={adminBtn}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+          </svg>
+          <span>Admin</span>
+        </a>
+        <button type="button" onClick={signOut} title="Cerrar sesion" style={logoutBtn}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          <span>Salir</span>
+        </button>
+      </div>
     </>
   )
 }
 
 const logoutBtn = {
-  position:'fixed', bottom:14, right:14, zIndex:10000,
   display:'flex', alignItems:'center', gap:6,
   padding:'8px 14px', borderRadius:20,
   background:'rgba(10,10,15,.85)', color:'#fff',
@@ -130,4 +155,16 @@ const logoutBtn = {
   fontSize:11, fontWeight:800, letterSpacing:'.08em', textTransform:'uppercase',
   cursor:'pointer', backdropFilter:'blur(8px)',
   boxShadow:'0 6px 18px rgba(0,0,0,.25)',
+}
+const adminBtn = {
+  ...Object.fromEntries(Object.entries({
+    display:'flex', alignItems:'center', gap:6,
+    padding:'8px 12px', borderRadius:20,
+    background:'rgba(255,255,255,.92)', color:'#0A0A0F',
+    border:'1px solid rgba(10,10,15,.15)',
+    fontFamily:"'Montserrat',sans-serif",
+    fontSize:11, fontWeight:800, letterSpacing:'.08em', textTransform:'uppercase',
+    cursor:'pointer', textDecoration:'none', backdropFilter:'blur(8px)',
+    boxShadow:'0 6px 18px rgba(0,0,0,.15)',
+  })),
 }

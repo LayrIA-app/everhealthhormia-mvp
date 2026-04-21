@@ -2,10 +2,19 @@ html, body, #root {
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100%;
-  overflow: hidden;
+  min-height: 100%;
   background: #F4F8FB;
   font-family: 'DM Sans', sans-serif;
+}
+
+/* El shell con iframe necesita overflow hidden para evitar doble scroll */
+body:has(.app-frame) {
+  overflow: hidden;
+  height: 100%;
+}
+body:has(.app-frame) #root {
+  height: 100%;
+  overflow: hidden;
 }
 
 /* Loader inicial mientras la demo carga */
